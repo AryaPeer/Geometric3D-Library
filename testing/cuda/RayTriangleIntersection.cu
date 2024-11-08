@@ -30,7 +30,7 @@ __global__ void rayTriangleIntersectKernel(
         float a = dot(edge1, h);
 
         if (fabs(a) < EPSILON) {
-            intersections[idx].hit = false; // Ray is parallel to the triangle
+            intersections[idx].hit = false; 
             return;
         }
 
@@ -54,18 +54,17 @@ __global__ void rayTriangleIntersectKernel(
         }
 
         float t = f * dot(edge2, q);
-        if (t > EPSILON) { // Ray intersection
+        if (t > EPSILON) { 
             intersections[idx].hit = true;
             intersections[idx].t = t;
             intersections[idx].u = u;
             intersections[idx].v = v;
         } else {
-            intersections[idx].hit = false; // Line intersection but not a ray intersection
+            intersections[idx].hit = false; 
         }
     }
 }
 
-// Helper function to check for CUDA errors
 void checkCudaError(cudaError_t err, const char* msg) {
     if (err != cudaSuccess) {
         std::cerr << "CUDA Error: " << msg << " - " << cudaGetErrorString(err) << "\n";
@@ -73,19 +72,16 @@ void checkCudaError(cudaError_t err, const char* msg) {
     }
 }
 
-// Host function to perform ray-triangle intersections
 void performRayTriangleIntersections(
     Ray* rays,
     Triangle* triangles,
     Intersection* intersections,
     int numTests)
 {
-    // Device pointers
     Ray* d_rays = nullptr;
     Triangle* d_triangles = nullptr;
     Intersection* d_intersections = nullptr;
 
-    // Allocate device memory
     size_t sizeRays = numTests * sizeof(Ray);
     size_t sizeTriangles = numTests * sizeof(Triangle);
     size_t sizeIntersections = numTests * sizeof(Intersection);
@@ -94,19 +90,15 @@ void performRayTriangleIntersections(
     checkCudaError(cudaMalloc(&d_triangles, sizeTriangles), "Allocating device memory for triangles");
     checkCudaError(cudaMalloc(&d_intersections, sizeIntersections), "Allocating device memory for intersections");
 
-    // Copy data from host to device
     checkCudaError(cudaMemcpy(d_rays, rays, sizeRays, cudaMemcpyHostToDevice), "Copying rays to device");
     checkCudaError(cudaMemcpy(d_triangles, triangles, sizeTriangles, cudaMemcpyHostToDevice), "Copying triangles to device");
 
-    // Launch kernel
     int numBlocks = (numTests + BLOCK_SIZE - 1) / BLOCK_SIZE;
     rayTriangleIntersectKernel<<<numBlocks, BLOCK_SIZE>>>(d_rays, d_triangles, d_intersections, numTests);
     checkCudaError(cudaGetLastError(), "Launching kernel");
 
-    // Copy results back to host
     checkCudaError(cudaMemcpy(intersections, d_intersections, sizeIntersections, cudaMemcpyDeviceToHost), "Copying intersections to host");
 
-    // Free device memory
     cudaFree(d_rays);
     cudaFree(d_triangles);
     cudaFree(d_intersections);
