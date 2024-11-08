@@ -21,8 +21,8 @@ g++ -c src/geometricAlgs/Ray.cpp -o bin/static/Ray.o
 
 g++ -I "$EIGEN_PATH" -c src/main.cpp -o bin/main.o
 
-ar rcs bin/static/libgeometricAlgs.a bin/static/point3D.o bin/static/KDTree.o bin/static/Octree.o bin/static/AABB.o bin/static/BVH.o bin/static/ConvexHull.o bin/static/DelaunayTriangulation.o bin/static/OBB.o bin/static/Ray.o
+ar rcs bin/static/geometricAlgsLib.a bin/static/point3D.o bin/static/KDTree.o bin/static/Octree.o bin/static/AABB.o bin/static/BVH.o bin/static/ConvexHull.o bin/static/DelaunayTriangulation.o bin/static/OBB.o bin/static/Ray.o
 
-g++ bin/main.o -Lbin/static -l:libgeometricAlgs.a -o bin/execute_program
+g++ bin/main.o -Lbin/static -l:geometricAlgsLib.a -o bin/execute_program
 
 echo "Compilation complete. Run ./bin/execute_program to execute the program."
