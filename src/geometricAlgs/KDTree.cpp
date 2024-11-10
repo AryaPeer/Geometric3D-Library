@@ -1,6 +1,7 @@
-#include "includes/KDTree.h"
+#include "KDTree.h"
 #include <limits>
 #include <cmath>
+#include <queue>
 
 // Constructor
 template <typename T>
@@ -10,6 +11,43 @@ KDTree<T>::KDTree() : root(nullptr) {}
 template <typename T>
 KDTree<T>::~KDTree() {
     clear();
+}
+
+template <typename T>
+void KDTree<T>::build(const std::vector<Point3D<T>>& points) {
+    std::unique_lock<std::shared_mutex> lock(treeMutex);
+    std::vector<Point3D<T>> pts = points;
+    root = buildRec(pts, 0);
+}
+
+template <typename T>
+KDTreeNode<T>* KDTree<T>::buildRec(std::vector<Point3D<T>>& points, int depth) {
+    if (points.empty()) {
+        return nullptr;
+    }
+
+    int axis = depth % 3;
+    auto comparator = [axis](const Point3D<T>& a, const Point3D<T>& b) {
+        if (axis == 0)
+            return a.x < b.x;
+        else if (axis == 1)
+            return a.y < b.y;
+        else
+            return a.z < b.z;
+    };
+
+    size_t medianIndex = points.size() / 2;
+    std::nth_element(points.begin(), points.begin() + medianIndex, points.end(), comparator);
+
+    Point3D<T> medianPoint = points[medianIndex];
+    std::vector<Point3D<T>> leftPoints(points.begin(), points.begin() + medianIndex);
+    std::vector<Point3D<T>> rightPoints(points.begin() + medianIndex + 1, points.end());
+
+    KDTreeNode<T>* node = new KDTreeNode<T>(medianPoint);
+    node->left = buildRec(leftPoints, depth + 1);
+    node->right = buildRec(rightPoints, depth + 1);
+
+    return node;
 }
 
 template <typename T>
@@ -42,7 +80,7 @@ KDTreeNode<T>* KDTree<T>::insertRec(KDTreeNode<T>* node, const Point3D<T>& point
 }
 
 template <typename T>
-bool KDTree<T>::remove(const Point3D<T>& point) {
+bool KDTree<T>::remove(const Point3D<T>& point, T epsilon) {
     std::unique_lock<std::shared_mutex> lock(treeMutex);
     bool deleted = false;
     root = removeRec(root, point, 0, deleted);
@@ -60,29 +98,24 @@ KDTreeNode<T>* KDTree<T>::removeRec(KDTreeNode<T>* node, const Point3D<T>& point
     {
         std::unique_lock<std::shared_mutex> nodeLock(node->nodeMutex);
 
-        if (node->point == point) {
+        if (node->point.distanceTo(point) <= epsilon) {
             deleted = true;
 
             if (node->right != nullptr) {
                 KDTreeNode<T>* minNode = findMin(node->right, axis, depth + 1);
-
                 {
                     std::unique_lock<std::shared_mutex> minNodeLock(minNode->nodeMutex);
                     node->point = minNode->point;
                 }
-
                 node->right = removeRec(node->right, minNode->point, depth + 1, deleted);
             } else if (node->left != nullptr) {
                 KDTreeNode<T>* minNode = findMin(node->left, axis, depth + 1);
-
                 {
                     std::unique_lock<std::shared_mutex> minNodeLock(minNode->nodeMutex);
                     node->point = minNode->point;
                 }
-
                 node->right = node->left;
                 node->left = nullptr;
-
                 node->right = removeRec(node->right, minNode->point, depth + 1, deleted);
             } else {
                 delete node;
@@ -164,9 +197,7 @@ void KDTree<T>::nearestNeighborRec(KDTreeNode<T>* node, const Point3D<T>& queryP
 
     std::shared_lock<std::shared_mutex> nodeLock(node->nodeMutex);
 
-    T distSquared = (node->point.x - queryPoint.x) * (node->point.x - queryPoint.x) +
-                    (node->point.y - queryPoint.y) * (node->point.y - queryPoint.y) +
-                    (node->point.z - queryPoint.z) * (node->point.z - queryPoint.z);
+    T distSquared = (node->point - queryPoint).normSquared();
 
     if (distSquared < minDistSquared) {
         minDistSquared = distSquared;
@@ -174,20 +205,20 @@ void KDTree<T>::nearestNeighborRec(KDTreeNode<T>* node, const Point3D<T>& queryP
     }
 
     int axis = depth % 3;
-    KDTreeNode<T>* nextNode = nullptr;
-    KDTreeNode<T>* otherNode = nullptr;
+    KDTreeNode<T>* nearNode = nullptr;
+    KDTreeNode<T>* farNode = nullptr;
 
     if ((axis == 0 && queryPoint.x < node->point.x) ||
         (axis == 1 && queryPoint.y < node->point.y) ||
         (axis == 2 && queryPoint.z < node->point.z)) {
-        nextNode = node->left;
-        otherNode = node->right;
+        nearNode = node->left;
+        farNode = node->right;
     } else {
-        nextNode = node->right;
-        otherNode = node->left;
+        nearNode = node->right;
+        farNode = node->left;
     }
 
-    nearestNeighborRec(nextNode, queryPoint, depth + 1, nearest, minDistSquared);
+    nearestNeighborRec(nearNode, queryPoint, depth + 1, nearest, minDistSquared);
 
     T diff = 0;
     if (axis == 0) diff = queryPoint.x - node->point.x;
@@ -195,7 +226,125 @@ void KDTree<T>::nearestNeighborRec(KDTreeNode<T>* node, const Point3D<T>& queryP
     else diff = queryPoint.z - node->point.z;
 
     if (diff * diff < minDistSquared) {
-        nearestNeighborRec(otherNode, queryPoint, depth + 1, nearest, minDistSquared);
+        nearestNeighborRec(farNode, queryPoint, depth + 1, nearest, minDistSquared);
+    }
+}
+
+template <typename T>
+void KDTree<T>::kNearestNeighbors(const Point3D<T>& queryPoint, int k, std::vector<Point3D<T>>& neighbors) const {
+    std::shared_lock<std::shared_mutex> lock(treeMutex);
+    if (root == nullptr || k <= 0) {
+        return;
+    }
+
+    auto compare = [](const std::pair<T, Point3D<T>>& a, const std::pair<T, Point3D<T>>& b) {
+        return a.first < b.first;
+    };
+
+    std::vector<std::pair<T, Point3D<T>>> heap;
+    kNearestNeighborsRec(root, queryPoint, 0, k, heap);
+
+    std::sort(heap.begin(), heap.end(), compare);
+
+    neighbors.clear();
+    for (const auto& pair : heap) {
+        neighbors.push_back(pair.second);
+    }
+}
+
+template <typename T>
+void KDTree<T>::kNearestNeighborsRec(KDTreeNode<T>* node, const Point3D<T>& queryPoint, int depth, int k, std::vector<std::pair<T, Point3D<T>>>& heap) const {
+    if (node == nullptr) {
+        return;
+    }
+
+    std::shared_lock<std::shared_mutex> nodeLock(node->nodeMutex);
+
+    T distSquared = (node->point - queryPoint).normSquared();
+
+    if (heap.size() < static_cast<size_t>(k)) {
+        heap.push_back(std::make_pair(distSquared, node->point));
+        std::push_heap(heap.begin(), heap.end(), std::greater<>());
+    } else if (distSquared < heap.front().first) {
+        std::pop_heap(heap.begin(), heap.end(), std::greater<>());
+        heap.back() = std::make_pair(distSquared, node->point);
+        std::push_heap(heap.begin(), heap.end(), std::greater<>());
+    }
+
+    int axis = depth % 3;
+    KDTreeNode<T>* nearNode = nullptr;
+    KDTreeNode<T>* farNode = nullptr;
+
+    if ((axis == 0 && queryPoint.x < node->point.x) ||
+        (axis == 1 && queryPoint.y < node->point.y) ||
+        (axis == 2 && queryPoint.z < node->point.z)) {
+        nearNode = node->left;
+        farNode = node->right;
+    } else {
+        nearNode = node->right;
+        farNode = node->left;
+    }
+
+    kNearestNeighborsRec(nearNode, queryPoint, depth + 1, k, heap);
+
+    T diff = 0;
+    if (axis == 0) diff = queryPoint.x - node->point.x;
+    else if (axis == 1) diff = queryPoint.y - node->point.y;
+    else diff = queryPoint.z - node->point.z;
+
+    if (heap.size() < static_cast<size_t>(k) || diff * diff < heap.front().first) {
+        kNearestNeighborsRec(farNode, queryPoint, depth + 1, k, heap);
+    }
+}
+
+template <typename T>
+void KDTree<T>::radiusSearch(const Point3D<T>& queryPoint, T radius, std::vector<Point3D<T>>& neighbors) const {
+    std::shared_lock<std::shared_mutex> lock(treeMutex);
+    if (root == nullptr || radius <= 0) {
+        return;
+    }
+
+    T radiusSquared = radius * radius;
+    radiusSearchRec(root, queryPoint, radiusSquared, 0, neighbors);
+}
+
+template <typename T>
+void KDTree<T>::radiusSearchRec(KDTreeNode<T>* node, const Point3D<T>& queryPoint, T radiusSquared, int depth, std::vector<Point3D<T>>& neighbors) const {
+    if (node == nullptr) {
+        return;
+    }
+
+    std::shared_lock<std::shared_mutex> nodeLock(node->nodeMutex);
+
+    T distSquared = (node->point - queryPoint).normSquared();
+
+    if (distSquared <= radiusSquared) {
+        neighbors.push_back(node->point);
+    }
+
+    int axis = depth % 3;
+    KDTreeNode<T>* nearNode = nullptr;
+    KDTreeNode<T>* farNode = nullptr;
+
+    if ((axis == 0 && queryPoint.x < node->point.x) ||
+        (axis == 1 && queryPoint.y < node->point.y) ||
+        (axis == 2 && queryPoint.z < node->point.z)) {
+        nearNode = node->left;
+        farNode = node->right;
+    } else {
+        nearNode = node->right;
+        farNode = node->left;
+    }
+
+    radiusSearchRec(nearNode, queryPoint, radiusSquared, depth + 1, neighbors);
+
+    T diff = 0;
+    if (axis == 0) diff = queryPoint.x - node->point.x;
+    else if (axis == 1) diff = queryPoint.y - node->point.y;
+    else diff = queryPoint.z - node->point.z;
+
+    if (diff * diff <= radiusSquared) {
+        radiusSearchRec(farNode, queryPoint, radiusSquared, depth + 1, neighbors);
     }
 }
 

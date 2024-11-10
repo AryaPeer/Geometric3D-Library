@@ -1,149 +1,220 @@
-#include "includes/DelaunayTriangulation.h"
-#include <cmath>
+#include "DelaunayTriangulation.h"
 #include <algorithm>
-#include <mutex>
-#include <map>
-#include <set>
+#include <cmath>
+#include <limits>
+#include <stack>
 
 template <typename T>
-DelaunayTriangulation<T>::DelaunayTriangulation() {}
+DelaunayTriangulation<T>::DelaunayTriangulation() {
+    initialize();
+}
 
 template <typename T>
 DelaunayTriangulation<T>::~DelaunayTriangulation() {}
 
 template <typename T>
-void DelaunayTriangulation<T>::insertPoint(const Point3D<T>& point) {
-    std::lock_guard<std::mutex> lock(mutex);
+void DelaunayTriangulation<T>::initialize() {
+    T bigValue = std::numeric_limits<T>::max() / static_cast<T>(10);
 
+    vertices.push_back(Point3D<T>(-bigValue, -bigValue, 0));
+    vertices.push_back(Point3D<T>(bigValue, -bigValue, 0));
+    vertices.push_back(Point3D<T>(0, bigValue, 0));
+
+    triangles.push_back({0, 1, 2});
+}
+
+template <typename T>
+void DelaunayTriangulation<T>::insertPoint(const Point3D<T>& point) {
     int pointIndex = static_cast<int>(vertices.size());
     vertices.push_back(point);
 
-    if (tetrahedra.empty()) {
-        initialize();
-    } else {
-        updateTriangulation(pointIndex);
-    }
-}
+    std::vector<int> badTriangles;
+    std::vector<Edge> polygon;
 
-template <typename T>
-void DelaunayTriangulation<T>::initialize() {
-    T bigValue = static_cast<T>(1e6);
-    vertices.push_back(Point3D<T>(-bigValue, -bigValue, -bigValue));
-    vertices.push_back(Point3D<T>(bigValue, -bigValue, -bigValue));
-    vertices.push_back(Point3D<T>(0, bigValue, -bigValue));
-    vertices.push_back(Point3D<T>(0, 0, bigValue));
+    for (int i = 0; i < static_cast<int>(triangles.size()); ++i) {
+        const auto& tri = triangles[i];
+        if (isPointInCircumcircle(tri[0], tri[1], tri[2], pointIndex)) {
+            badTriangles.push_back(i);
 
-    tetrahedra.push_back({0, 1, 2, 3});
-}
-
-template <typename T>
-void DelaunayTriangulation<T>::updateTriangulation(int pointIndex) {
-    std::vector<int> badTetrahedra;
-    std::map<std::pair<int, int>, int> edgeCounts;
-
-    for (size_t i = 0; i < tetrahedra.size(); ++i) {
-        if (isPointInCircumsphere(tetrahedra[i], vertices[pointIndex])) {
-            badTetrahedra.push_back(static_cast<int>(i));
-
-            for (int j = 0; j < 4; ++j) {
-                for (int k = j + 1; k < 4; ++k) {
-                    int idx1 = tetrahedra[i][j];
-                    int idx2 = tetrahedra[i][k];
-                    std::pair<int, int> edge(std::min(idx1, idx2), std::max(idx1, idx2));
-                    edgeCounts[edge]++;
+            Edge edges[3] = {Edge(tri[0], tri[1]), Edge(tri[1], tri[2]), Edge(tri[2], tri[0])};
+            for (const auto& edge : edges) {
+                auto it = std::find(polygon.begin(), polygon.end(), edge);
+                if (it != polygon.end()) {
+                    polygon.erase(it);
+                } else {
+                    polygon.push_back(edge);
                 }
             }
         }
     }
 
-    std::vector<std::array<int, 3>> boundaryFaces;
-    for (const auto& edge : edgeCounts) {
-        if (edge.second == 1) {
-            boundaryFaces.push_back({edge.first.first, edge.first.second, pointIndex});
+    // Remove bad triangles
+    for (int i = static_cast<int>(badTriangles.size()) - 1; i >= 0; --i) {
+        triangles.erase(triangles.begin() + badTriangles[i]);
+    }
+
+    // Re-triangulate the hole
+    for (const auto& edge : polygon) {
+        triangles.push_back({edge.p1, edge.p2, pointIndex});
+        int triangleIndex = static_cast<int>(triangles.size()) - 1;
+        legalizeEdge(edge.p1, edge.p2, pointIndex, triangleIndex);
+    }
+}
+
+template <typename T>
+void DelaunayTriangulation<T>::insertConstraint(const Point3D<T>& p1, const Point3D<T>& p2) {
+    int idx1 = -1, idx2 = -1;
+    for (int i = 0; i < static_cast<int>(vertices.size()); ++i) {
+        if (vertices[i] == p1) {
+            idx1 = i;
+        }
+        if (vertices[i] == p2) {
+            idx2 = i;
+        }
+        if (idx1 != -1 && idx2 != -1) {
+            break;
         }
     }
 
-    for (int i = static_cast<int>(badTetrahedra.size()) - 1; i >= 0; --i) {
-        tetrahedra.erase(tetrahedra.begin() + badTetrahedra[i]);
+    if (idx1 == -1) {
+        idx1 = static_cast<int>(vertices.size());
+        vertices.push_back(p1);
+    }
+    if (idx2 == -1) {
+        idx2 = static_cast<int>(vertices.size());
+        vertices.push_back(p2);
     }
 
-    for (const auto& face : boundaryFaces) {
-        tetrahedra.push_back({face[0], face[1], pointIndex, face[2]});
-    }
-}
+    constraints.insert(Edge(idx1, idx2));
 
-template <typename T>
-bool DelaunayTriangulation<T>::isPointInCircumsphere(const std::array<int, 4>& tetIndices, const Point3D<T>& point) const {
-    const auto& p0 = vertices[tetIndices[0]];
-    const auto& p1 = vertices[tetIndices[1]];
-    const auto& p2 = vertices[tetIndices[2]];
-    const auto& p3 = vertices[tetIndices[3]];
+    insertPoint(p1);
+    insertPoint(p2);
 
-    T a[5][5] = {
-        {p0.x, p0.y, p0.z, p0.x * p0.x + p0.y * p0.y + p0.z * p0.z, 1},
-        {p1.x, p1.y, p1.z, p1.x * p1.x + p1.y * p1.y + p1.z * p1.z, 1},
-        {p2.x, p2.y, p2.z, p2.x * p2.x + p2.y * p2.y + p2.z * p2.z, 1},
-        {p3.x, p3.y, p3.z, p3.x * p3.x + p3.y * p3.y + p3.z * p3.z, 1},
-        {point.x, point.y, point.z, point.x * point.x + point.y * point.y + point.z * point.z, 1}
-    };
+    // Enforce the constraint by edge flipping
+    std::stack<Edge> edgeStack;
+    edgeStack.push(Edge(idx1, idx2));
 
-    T determinant = computeDeterminant(a);
+    while (!edgeStack.empty()) {
+        Edge edge = edgeStack.top();
+        edgeStack.pop();
 
-    return determinant > 0;
-}
+        for (int i = 0; i < static_cast<int>(triangles.size()); ++i) {
+            const auto& tri = triangles[i];
 
-template <typename T>
-T DelaunayTriangulation<T>::computeDeterminant(T matrix[5][5]) const {
-    T det = 0;
-    int sign = 1;
+            // Check if the triangle contains the edge
+            if ((tri[0] == edge.p1 && tri[1] == edge.p2) ||
+                (tri[1] == edge.p1 && tri[2] == edge.p2) ||
+                (tri[2] == edge.p1 && tri[0] == edge.p2) ||
+                (tri[0] == edge.p2 && tri[1] == edge.p1) ||
+                (tri[1] == edge.p2 && tri[2] == edge.p1) ||
+                (tri[2] == edge.p2 && tri[0] == edge.p1)) {
 
-    for (int i = 0; i < 5; ++i) {
-        T subMatrix[4][4];
-        for (int j = 1; j < 5; ++j) {
-            int colIndex = 0;
-            for (int k = 0; k < 5; ++k) {
-                if (k == i) continue;
-                subMatrix[j - 1][colIndex] = matrix[j][k];
-                colIndex++;
+                // Find the opposite point
+                int opposite = -1;
+                for (int j = 0; j < 3; ++j) {
+                    if (tri[j] != edge.p1 && tri[j] != edge.p2) {
+                        opposite = tri[j];
+                        break;
+                    }
+                }
+
+                // Check if the edge is illegal
+                if (isEdgeIllegal(edge.p1, edge.p2, opposite, -1)) {
+                    // Flip the edge
+                    triangles.erase(triangles.begin() + i);
+                    triangles.push_back({edge.p1, opposite, edge.p2});
+                    triangles.push_back({edge.p2, opposite, edge.p1});
+
+                    // Add new edges to the stack
+                    edgeStack.push(Edge(edge.p1, opposite));
+                    edgeStack.push(Edge(edge.p2, opposite));
+                    break;
+                }
             }
         }
-        det += sign * matrix[0][i] * compute4x4Determinant(subMatrix);
-        sign = -sign;
     }
-    return det;
 }
 
 template <typename T>
-T DelaunayTriangulation<T>::compute4x4Determinant(T matrix[4][4]) const {
-    T det = 0;
-    int sign = 1;
+void DelaunayTriangulation<T>::legalizeEdge(int a, int b, int c, int triangleIndex) {
+    // Find the triangle adjacent to (a, b)
+    for (int i = 0; i < static_cast<int>(triangles.size()); ++i) {
+        if (i == triangleIndex) continue;
 
-    for (int i = 0; i < 4; ++i) {
-        T subMatrix[3][3];
-        for (int j = 1; j < 4; ++j) {
-            int colIndex = 0;
-            for (int k = 0; k < 4; ++k) {
-                if (k == i) continue;
-                subMatrix[j - 1][colIndex] = matrix[j][k];
-                colIndex++;
+        const auto& tri = triangles[i];
+        if ((tri[0] == b && tri[1] == a) ||
+            (tri[1] == b && tri[2] == a) ||
+            (tri[2] == b && tri[0] == a) ||
+            (tri[0] == a && tri[1] == b) ||
+            (tri[1] == a && tri[2] == b) ||
+            (tri[2] == a && tri[0] == b)) {
+
+            int d = -1;
+            for (int j = 0; j < 3; ++j) {
+                if (tri[j] != a && tri[j] != b) {
+                    d = tri[j];
+                    break;
+                }
             }
+
+            if (isEdgeIllegal(a, b, c, d)) {
+                // Remove the two triangles sharing the edge (a, b)
+                triangles.erase(triangles.begin() + std::max(i, triangleIndex));
+                triangles.erase(triangles.begin() + std::min(i, triangleIndex));
+
+                // Create new triangles by flipping the edge
+                triangles.push_back({a, c, d});
+                triangles.push_back({b, d, c});
+
+                // Legalize new edges
+                legalizeEdge(a, d, c, static_cast<int>(triangles.size()) - 2);
+                legalizeEdge(b, c, d, static_cast<int>(triangles.size()) - 1);
+            }
+            break;
         }
-        det += sign * matrix[0][i] * compute3x3Determinant(subMatrix);
-        sign = -sign;
     }
-    return det;
 }
 
 template <typename T>
-T DelaunayTriangulation<T>::compute3x3Determinant(T matrix[3][3]) const {
-    return matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1]) -
-           matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0]) +
-           matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
+bool DelaunayTriangulation<T>::isEdgeIllegal(int a, int b, int c, int d) const {
+    if (constraints.find(Edge(a, b)) != constraints.end()) {
+        return false;
+    }
+    if (d == -1) {
+        return false;
+    }
+    return isPointInCircumcircle(a, b, c, d);
 }
 
 template <typename T>
-const std::vector<std::array<int, 4>>& DelaunayTriangulation<T>::getTetrahedra() const {
-    return tetrahedra;
+bool DelaunayTriangulation<T>::isPointInCircumcircle(int a, int b, int c, int d) const {
+    const auto& pa = vertices[a];
+    const auto& pb = vertices[b];
+    const auto& pc = vertices[c];
+    const auto& pd = vertices[d];
+
+    T ax = pa.x - pd.x;
+    T ay = pa.y - pd.y;
+    T bx = pb.x - pd.x;
+    T by = pb.y - pd.y;
+    T cx = pc.x - pd.x;
+    T cy = pc.y - pd.y;
+
+    T det = (ax * ax + ay * ay) * (bx * cy - cx * by)
+          - (bx * bx + by * by) * (ax * cy - cx * ay)
+          + (cx * cx + cy * cy) * (ax * by - bx * ay);
+
+    return det > static_cast<T>(0);
+}
+
+template <typename T>
+T DelaunayTriangulation<T>::orient2D(const Point3D<T>& a, const Point3D<T>& b, const Point3D<T>& c) const {
+    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+template <typename T>
+const std::vector<std::array<int, 3>>& DelaunayTriangulation<T>::getTriangles() const {
+    return triangles;
 }
 
 template <typename T>

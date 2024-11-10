@@ -1,14 +1,10 @@
-#include "includes/Octree.h"
+#include "Octree.h"
 #include <cmath>
+#include <limits>
 
 template <typename T>
 Octree<T>::Octree(const Point3D<T>& origin, T halfDimension, int maxPointsPerNode)
     : root(std::make_unique<OctreeNode<T>>(origin, halfDimension)), maxPointsPerNode(maxPointsPerNode) {}
-
-template <typename T>
-Octree<T>::~Octree() {
-    clear();
-}
 
 template <typename T>
 void Octree<T>::insert(const Point3D<T>& point) {
@@ -21,6 +17,11 @@ bool Octree<T>::remove(const Point3D<T>& point, T epsilon) {
 }
 
 template <typename T>
+void Octree<T>::movePoint(const Point3D<T>& oldPoint, const Point3D<T>& newPoint, T epsilon) {
+    root->movePoint(oldPoint, newPoint, epsilon, maxPointsPerNode);
+}
+
+template <typename T>
 void Octree<T>::queryRange(const Point3D<T>& min, const Point3D<T>& max, std::vector<Point3D<T>>& results) const {
     root->queryRange(min, max, results);
 }
@@ -30,7 +31,6 @@ void Octree<T>::clear() {
     root->clear();
 }
 
-
 template <typename T>
 OctreeNode<T>::OctreeNode(const Point3D<T>& origin, T halfDimension)
     : origin(origin), halfDimension(halfDimension) {
@@ -38,13 +38,11 @@ OctreeNode<T>::OctreeNode(const Point3D<T>& origin, T halfDimension)
 }
 
 template <typename T>
-OctreeNode<T>::~OctreeNode() {
-    clear();
-}
-
-template <typename T>
 void OctreeNode<T>::insert(const Point3D<T>& point, int maxPointsPerNode) {
     std::unique_lock<std::shared_mutex> lock(nodeMutex);
+
+    if (!containsPoint(point))
+        return;
 
     if (children[0] == nullptr) {
         points.push_back(point);
@@ -69,9 +67,8 @@ template <typename T>
 bool OctreeNode<T>::remove(const Point3D<T>& point, T epsilon, int maxPointsPerNode) {
     std::unique_lock<std::shared_mutex> lock(nodeMutex);
 
-    if (!intersects(point, point)) {
+    if (!containsPoint(point))
         return false;
-    }
 
     if (children[0] == nullptr) {
         for (auto it = points.begin(); it != points.end(); ++it) {
@@ -107,6 +104,12 @@ bool OctreeNode<T>::remove(const Point3D<T>& point, T epsilon, int maxPointsPerN
 }
 
 template <typename T>
+void OctreeNode<T>::movePoint(const Point3D<T>& oldPoint, const Point3D<T>& newPoint, T epsilon, int maxPointsPerNode) {
+    remove(oldPoint, epsilon, maxPointsPerNode);
+    insert(newPoint, maxPointsPerNode);
+}
+
+template <typename T>
 void OctreeNode<T>::queryRange(const Point3D<T>& min, const Point3D<T>& max, std::vector<Point3D<T>>& results) const {
     std::shared_lock<std::shared_mutex> lock(nodeMutex);
 
@@ -122,7 +125,7 @@ void OctreeNode<T>::queryRange(const Point3D<T>& min, const Point3D<T>& max, std
             }
         }
     } else {
-        lock.unlock(); 
+        lock.unlock();
         for (int i = 0; i < 8; ++i) {
             children[i]->queryRange(min, max, results);
         }
@@ -140,6 +143,29 @@ void OctreeNode<T>::clear() {
             children[i]->clear();
             lock.lock();
             children[i].reset();
+        }
+    }
+}
+
+template <typename T>
+int OctreeNode<T>::getLOD() const {
+    int depth = 0;
+    const OctreeNode<T>* node = this;
+    while (node->children[0]) {
+        depth++;
+        node = node->children[0].get();
+    }
+    return depth;
+}
+
+template <typename T>
+void OctreeNode<T>::collectLODNodes(int desiredLOD, std::vector<const OctreeNode<T>*>& lodNodes) const {
+    if (desiredLOD == 0 || !children[0]) {
+        lodNodes.push_back(this);
+    } else {
+        for (const auto& child : children) {
+            if (child)
+                child->collectLODNodes(desiredLOD - 1, lodNodes);
         }
     }
 }
@@ -170,6 +196,13 @@ bool OctreeNode<T>::intersects(const Point3D<T>& min, const Point3D<T>& max) con
     return !(origin.x + halfDimension < min.x || origin.x - halfDimension > max.x ||
              origin.y + halfDimension < min.y || origin.y - halfDimension > max.y ||
              origin.z + halfDimension < min.z || origin.z - halfDimension > max.z);
+}
+
+template <typename T>
+bool OctreeNode<T>::containsPoint(const Point3D<T>& point) const {
+    return point.x >= origin.x - halfDimension && point.x <= origin.x + halfDimension &&
+           point.y >= origin.y - halfDimension && point.y <= origin.y + halfDimension &&
+           point.z >= origin.z - halfDimension && point.z <= origin.z + halfDimension;
 }
 
 template <typename T>

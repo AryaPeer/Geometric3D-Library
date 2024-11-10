@@ -3,39 +3,45 @@
 
 #include <vector>
 #include <memory>
-#include <mutex>
-#include <algorithm>
 #include "AABB.h"
 
 template <typename T>
 class BVHNode {
 public:
-    AABB<T> boundingBox;
+    AABB<typename T::value_type> boundingBox;
     std::unique_ptr<BVHNode<T>> left;
     std::unique_ptr<BVHNode<T>> right;
-    std::vector<T> objects; // Only for leaf nodes
+    std::vector<T> objects;
 
-    // Constructor
     BVHNode();
 
-    // Build the BVH node
     void build(std::vector<T>& objects, int maxObjectsPerLeaf = 1);
+    void refit();
+    bool isLeaf() const;
 
-    // Mutex for thread safety during construction
-    std::mutex mutex;
+    template <typename Ray>
+    bool intersect(const Ray& ray, float& tMin, T& hitObject) const;
+
+    void insert(const T& object);
+    void remove(const T& object);
 };
 
 template <typename T>
 class BVH {
 public:
-    BVH(std::vector<T>& objects, int maxObjectsPerLeaf = 1);
+    BVH(int maxObjectsPerLeaf = 1);
 
-    ~BVH();
+    void build(const std::vector<T>& objects);
+    void refit();
+    void insert(const T& object);
+    void remove(const T& object);
 
-    const BVHNode<T>* getRoot() const;
+    template <typename Ray>
+    bool intersect(const Ray& ray, T& hitObject) const;
 
 private:
     std::unique_ptr<BVHNode<T>> root;
+    int maxObjectsPerLeaf;
 };
 
-#endif
+#endif // BVH_H

@@ -5,7 +5,6 @@
 #include <mutex>
 #include "Point3D.h"
 
-// Forward declaration of ConvexHull class
 template <typename T>
 class ConvexHull {
 public:

@@ -5,13 +5,13 @@
 #include <limits>
 #include <algorithm>
 
-// Axis-Aligned Bounding Box (AABB)
 template <typename T>
 class AABB {
 public:
     Point3D<T> min;
     Point3D<T> max;
 
+    // Constructors
     AABB();
     AABB(const Point3D<T>& minPoint, const Point3D<T>& maxPoint);
 
@@ -23,6 +23,14 @@ public:
 
     Point3D<T> center() const;
     Point3D<T> size() const;
+
+    T volume() const;
+    bool isValid() const;
+    void reset();
+    void getCorners(Point3D<T> corners[8]) const;
+
+    bool operator==(const AABB<T>& other) const;
+    bool operator!=(const AABB<T>& other) const;
 };
 
 #endif // AABB_H
