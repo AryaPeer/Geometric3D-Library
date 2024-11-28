@@ -83,12 +83,12 @@ template <typename T>
 bool KDTree<T>::remove(const Point3D<T>& point, T epsilon) {
     std::unique_lock<std::shared_mutex> lock(treeMutex);
     bool deleted = false;
-    root = removeRec(root, point, 0, deleted);
+    root = removeRec(root, point, 0, deleted, epsilon);
     return deleted;
 }
 
 template <typename T>
-KDTreeNode<T>* KDTree<T>::removeRec(KDTreeNode<T>* node, const Point3D<T>& point, int depth, bool& deleted) {
+KDTreeNode<T>* KDTree<T>::removeRec(KDTreeNode<T>* node, const Point3D<T>& point, int depth, bool& deleted, T epsilon) {
     if (node == nullptr) {
         return nullptr;
     }
@@ -107,7 +107,7 @@ KDTreeNode<T>* KDTree<T>::removeRec(KDTreeNode<T>* node, const Point3D<T>& point
                     std::unique_lock<std::shared_mutex> minNodeLock(minNode->nodeMutex);
                     node->point = minNode->point;
                 }
-                node->right = removeRec(node->right, minNode->point, depth + 1, deleted);
+                node->right = removeRec(node->right, minNode->point, depth + 1, deleted, epsilon);
             } else if (node->left != nullptr) {
                 KDTreeNode<T>* minNode = findMin(node->left, axis, depth + 1);
                 {
@@ -116,7 +116,7 @@ KDTreeNode<T>* KDTree<T>::removeRec(KDTreeNode<T>* node, const Point3D<T>& point
                 }
                 node->right = node->left;
                 node->left = nullptr;
-                node->right = removeRec(node->right, minNode->point, depth + 1, deleted);
+                node->right = removeRec(node->right, minNode->point, depth + 1, deleted, epsilon);
             } else {
                 delete node;
                 return nullptr;
@@ -127,9 +127,9 @@ KDTreeNode<T>* KDTree<T>::removeRec(KDTreeNode<T>* node, const Point3D<T>& point
         if ((axis == 0 && point.x < node->point.x) ||
             (axis == 1 && point.y < node->point.y) ||
             (axis == 2 && point.z < node->point.z)) {
-            node->left = removeRec(node->left, point, depth + 1, deleted);
+            node->left = removeRec(node->left, point, depth + 1, deleted, epsilon);
         } else {
-            node->right = removeRec(node->right, point, depth + 1, deleted);
+            node->right = removeRec(node->right, point, depth + 1, deleted, epsilon);
         }
     }
 
