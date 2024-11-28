@@ -106,20 +106,25 @@ bool BVHNode<T>::intersect(const Ray& ray, float& tMin, T& hitObject) const {
 
 template <typename T>
 void BVHNode<T>::insert(const T& object) {
+    boundingBox.expand(object.getBoundingBox());
+
     if (isLeaf()) {
         objects.push_back(object);
-        boundingBox.expand(object.getBoundingBox());
-        if (objects.size() > 1) {
+        if (objects.size() > maxObjectsPerLeaf) {
             std::vector<T> objs = std::move(objects);
-            build(objs, 1);
+            build(objs, maxObjectsPerLeaf);
         }
     } else {
+        bool inserted = false;
         if (left->boundingBox.contains(object.getBoundingBox())) {
             left->insert(object);
-        } else if (right->boundingBox.contains(object.getBoundingBox())) {
+            inserted = true;
+        }
+        if (right->boundingBox.contains(object.getBoundingBox())) {
             right->insert(object);
-        } else {
-            boundingBox.expand(object.getBoundingBox());
+            inserted = true;
+        }
+        if (!inserted) {
             objects.push_back(object);
         }
     }
