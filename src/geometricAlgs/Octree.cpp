@@ -58,8 +58,9 @@ void OctreeNode<T>::insert(const Point3D<T>& point, int maxPointsPerNode) {
         }
     } else {
         int octant = getOctantContainingPoint(point);
-        lock.unlock();
-        children[octant]->insert(point, maxPointsPerNode);
+        if (children[octant]) {
+            children[octant]->insert(point, maxPointsPerNode);
+        }
     }
 }
 
@@ -125,12 +126,14 @@ void OctreeNode<T>::queryRange(const Point3D<T>& min, const Point3D<T>& max, std
             }
         }
     } else {
-        lock.unlock();
         for (int i = 0; i < 8; ++i) {
-            children[i]->queryRange(min, max, results);
+            if (children[i]) {
+                children[i]->queryRange(min, max, results);
+            }
         }
     }
 }
+
 
 template <typename T>
 void OctreeNode<T>::clear() {
