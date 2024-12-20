@@ -1,6 +1,6 @@
 #!/bin/bash
 
-EIGEN_PATH="/usr/include/eigen3"  
+EIGEN_PATH="/usr/local/include/eigen3"  
 
 if [ ! -d "$EIGEN_PATH" ]; then
   echo "Eigen library not found. Please install Eigen or update the EIGEN_PATH."
