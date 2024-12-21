@@ -2,12 +2,12 @@
 #include <thread>
 #include <future>
 #include <set>
+#include <map>
 #include <algorithm>
 #include <cmath>
 
 template <typename T>
 ConvexHull<T>::ConvexHull(const std::vector<Point3D<T>>& points) : inputPoints(points) {}
-
 
 template <typename T>
 ConvexHull<T>::~ConvexHull() {}
@@ -23,7 +23,7 @@ void ConvexHull<T>::compute() {
     initializeHull();
 
     std::vector<std::future<void>> futures;
-    size_t numThreads = std::thread::hardware_concurrency();
+    size_t numThreads = std::min(std::thread::hardware_concurrency(), static_cast<unsigned int>(inputPoints.size()));
     size_t pointsPerThread = inputPoints.size() / numThreads;
 
     for (size_t i = 0; i < numThreads; ++i) {
@@ -37,12 +37,9 @@ void ConvexHull<T>::compute() {
         }));
     }
 
-    // Wait for all threads to complete
     for (auto& f : futures) {
         f.get();
     }
-
-
 }
 
 template <typename T>
@@ -50,10 +47,9 @@ void ConvexHull<T>::initializeHull() {
     int i0 = 0, i1 = 1, i2 = 2, i3 = 3;
 
     Point3D<T> normal = computeNormal(inputPoints[i0], inputPoints[i1], inputPoints[i2]);
-
     T dist = distanceToFace({{i0, i1, i2}, normal}, inputPoints[i3]);
+
     if (std::abs(dist) < std::numeric_limits<T>::epsilon()) {
-        // Find another point that's not coplanar
         for (size_t i = 4; i < inputPoints.size(); ++i) {
             dist = distanceToFace({{i0, i1, i2}, normal}, inputPoints[i]);
             if (std::abs(dist) > std::numeric_limits<T>::epsilon()) {
@@ -67,10 +63,10 @@ void ConvexHull<T>::initializeHull() {
         std::lock_guard<std::mutex> lock(mutex);
         hullVertices = {inputPoints[i0], inputPoints[i1], inputPoints[i2], inputPoints[i3]};
         hullFaces = {
-            {0, 1, 2},
-            {0, 1, 3},
-            {1, 2, 3},
-            {2, 0, 3}
+            {i0, i1, i2},
+            {i0, i1, i3},
+            {i1, i2, i3},
+            {i2, i0, i3}
         };
     }
 }
@@ -78,12 +74,12 @@ void ConvexHull<T>::initializeHull() {
 template <typename T>
 void ConvexHull<T>::addPointToHull(int pointIndex) {
     const Point3D<T>& point = inputPoints[pointIndex];
-
     std::vector<int> visibleFaces;
     std::map<std::pair<int, int>, int> edgeCounts;
 
     {
         std::lock_guard<std::mutex> lock(mutex);
+
         for (size_t faceIdx = 0; faceIdx < hullFaces.size(); ++faceIdx) {
             const auto& faceIndices = hullFaces[faceIdx];
 
@@ -106,14 +102,14 @@ void ConvexHull<T>::addPointToHull(int pointIndex) {
                     int idx2 = face.indices[(i + 1) % 3];
                     int minIdx = std::min(idx1, idx2);
                     int maxIdx = std::max(idx1, idx2);
-                    std::pair<int, int> edge(minIdx, maxIdx);
-                    edgeCounts[edge]++;
+                    edgeCounts[{minIdx, maxIdx}]++;
                 }
             }
         }
 
         if (!visibleFaces.empty()) {
             std::vector<std::pair<int, int>> horizonEdges;
+
             for (const auto& edgeCountPair : edgeCounts) {
                 if (edgeCountPair.second == 1) {
                     horizonEdges.push_back(edgeCountPair.first);
@@ -122,11 +118,13 @@ void ConvexHull<T>::addPointToHull(int pointIndex) {
 
             std::set<int> facesToRemove(visibleFaces.begin(), visibleFaces.end());
             std::vector<std::vector<int>> newHullFaces;
+
             for (size_t faceIdx = 0; faceIdx < hullFaces.size(); ++faceIdx) {
                 if (facesToRemove.find(static_cast<int>(faceIdx)) == facesToRemove.end()) {
                     newHullFaces.push_back(hullFaces[faceIdx]);
                 }
             }
+
             hullFaces.swap(newHullFaces);
 
             int newVertexIndex = static_cast<int>(hullVertices.size());
@@ -138,7 +136,6 @@ void ConvexHull<T>::addPointToHull(int pointIndex) {
         }
     }
 }
-
 
 template <typename T>
 T ConvexHull<T>::distanceToFace(const Face& face, const Point3D<T>& point) const {

@@ -2,24 +2,23 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
-#include <Eigen/Dense> // If you are using this library make sure to install eigen before compilation
+#include <Eigen/Dense>
 #include <Eigen/Eigenvalues>
-
 
 template <typename T>
 OBB<T>::OBB()
-    : center(0, 0, 0), axis{Point3D<T>(1, 0, 0), Point3D<T>(0, 1, 0), Point3D<T>(0, 0, 1)}, extent{1, 1, 1} {}
+    : center(0, 0, 0), axes{Point3D<T>(1, 0, 0), Point3D<T>(0, 1, 0), Point3D<T>(0, 0, 1)}, extents{1, 1, 1} {}
 
 template <typename T>
 OBB<T>::OBB(const Point3D<T>& centerPoint, const std::array<Point3D<T>, 3>& axes, const std::array<T, 3>& extents)
-    : center(centerPoint), axis(axes), extent(extents) {}
+    : center(centerPoint), axes(axes), extents(extents) {}
 
 template <typename T>
 bool OBB<T>::contains(const Point3D<T>& point) const {
     Point3D<T> d = point - center;
     for (int i = 0; i < 3; ++i) {
-        T dist = d.dot(axis[i]);
-        if (std::abs(dist) > extent[i]) {
+        T dist = d.dot(axes[i]);
+        if (std::abs(dist) > extents[i]) {
             return false;
         }
     }

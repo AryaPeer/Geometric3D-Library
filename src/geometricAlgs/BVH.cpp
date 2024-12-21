@@ -1,14 +1,15 @@
-#include "BVH.h"
+#include "includes/BVH.h"
 #include <algorithm>
 #include <limits>
 #include <thread>
 #include <future>
 
 template <typename T>
-BVHNode<T>::BVHNode() {}
+BVHNode<T>::BVHNode(int maxLeafObjects) : maxObjectsPerLeaf(maxLeafObjects) {}
 
 template <typename T>
-void BVHNode<T>::build(std::vector<T>& objs, int maxObjectsPerLeaf) {
+void BVHNode<T>::build(std::vector<T>& objs, int maxLeafObjects) {
+    maxObjectsPerLeaf = maxLeafObjects;
     boundingBox.reset();
     for (const auto& obj : objs) {
         boundingBox.expand(obj.getBoundingBox());
@@ -42,8 +43,8 @@ void BVHNode<T>::build(std::vector<T>& objs, int maxObjectsPerLeaf) {
     }
     std::vector<T> leftObjects(objs.begin(), midIter);
     std::vector<T> rightObjects(midIter, objs.end());
-    left = std::make_unique<BVHNode<T>>();
-    right = std::make_unique<BVHNode<T>>();
+    left = std::make_unique<BVHNode<T>>(maxObjectsPerLeaf);
+    right = std::make_unique<BVHNode<T>>(maxObjectsPerLeaf);
     auto leftFuture = std::async(std::launch::async, [&]() {
         left->build(leftObjects, maxObjectsPerLeaf);
     });
@@ -155,7 +156,7 @@ BVH<T>::BVH(int maxObjectsPerLeaf) : maxObjectsPerLeaf(maxObjectsPerLeaf) {}
 template <typename T>
 void BVH<T>::build(const std::vector<T>& objects) {
     std::vector<T> objs = objects;
-    root = std::make_unique<BVHNode<T>>();
+    root = std::make_unique<BVHNode<T>>(maxObjectsPerLeaf);
     root->build(objs, maxObjectsPerLeaf);
 }
 
@@ -168,7 +169,7 @@ void BVH<T>::refit() {
 template <typename T>
 void BVH<T>::insert(const T& object) {
     if (!root) {
-        root = std::make_unique<BVHNode<T>>();
+        root = std::make_unique<BVHNode<T>>(maxObjectsPerLeaf);
         root->objects.push_back(object);
         root->boundingBox = object.getBoundingBox();
     } else {

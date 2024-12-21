@@ -1,20 +1,25 @@
 #include "includes/Point3D.h"
-#include <stdexcept>
 
+// Default Constructor
 template <typename T>
 Point3D<T>::Point3D() : x(T(0)), y(T(0)), z(T(0)) {}
 
+// Parameterized Constructor
 template <typename T>
 Point3D<T>::Point3D(T x_, T y_, T z_) : x(x_), y(y_), z(z_) {}
 
+// Copy Constructor
 template <typename T>
 Point3D<T>::Point3D(const Point3D<T>& other) : x(other.x), y(other.y), z(other.z) {}
 
+// Assignment Operator
 template <typename T>
 Point3D<T>& Point3D<T>::operator=(const Point3D<T>& other) {
-    x = other.x;
-    y = other.y;
-    z = other.z;
+    if (this != &other) {
+        this->x = other.x;
+        this->y = other.y;
+        this->z = other.z;
+    }
     return *this;
 }
 
@@ -30,21 +35,27 @@ T Point3D<T>::distanceTo(const Point3D<T>& other) const {
 
 template <typename T>
 T Point3D<T>::dot(const Point3D<T>& other) const {
-    return x * other.x + y * other.y + z * other.z;
+    return this->x * other.x + this->y * other.y + this->z * other.z;
 }
 
 template <typename T>
 Point3D<T> Point3D<T>::cross(const Point3D<T>& other) const {
     return Point3D<T>(
-        y * other.z - z * other.y,
-        z * other.x - x * other.z,
-        x * other.y - y * other.x
+        this->y * other.z - this->z * other.y,
+        this->z * other.x - this->x * other.z,
+        this->x * other.y - this->y * other.x
     );
 }
 
 template <typename T>
+T Point3D<T>::normSquared() const {
+    return x * x + y * y + z * z;
+}
+
+
+template <typename T>
 T Point3D<T>::norm() const {
-    return std::sqrt(x * x + y * y + z * z);
+    return std::sqrt(this->x * this->x + this->y * this->y + this->z * this->z);
 }
 
 template <typename T>
@@ -59,40 +70,40 @@ Point3D<T> Point3D<T>::normalized() const {
 // Operator Overloads
 template <typename T>
 Point3D<T> Point3D<T>::operator+(const Point3D<T>& other) const {
-    return Point3D<T>(x + other.x, y + other.y, z + other.z);
+    return Point3D<T>(this->x + other.x, this->y + other.y, this->z + other.z);
 }
 
 template <typename T>
 Point3D<T>& Point3D<T>::operator+=(const Point3D<T>& other) {
-    x += other.x;
-    y += other.y;
-    z += other.z;
+    this->x += other.x;
+    this->y += other.y;
+    this->z += other.z;
     return *this;
 }
 
 template <typename T>
 Point3D<T> Point3D<T>::operator-(const Point3D<T>& other) const {
-    return Point3D<T>(x - other.x, y - other.y, z - other.z);
+    return Point3D<T>(this->x - other.x, this->y - other.y, this->z - other.z);
 }
 
 template <typename T>
 Point3D<T>& Point3D<T>::operator-=(const Point3D<T>& other) {
-    x -= other.x;
-    y -= other.y;
-    z -= other.z;
+    this->x -= other.x;
+    this->y -= other.y;
+    this->z -= other.z;
     return *this;
 }
 
 template <typename T>
 Point3D<T> Point3D<T>::operator*(T scalar) const {
-    return Point3D<T>(x * scalar, y * scalar, z * scalar);
+    return Point3D<T>(this->x * scalar, this->y * scalar, this->z * scalar);
 }
 
 template <typename T>
 Point3D<T>& Point3D<T>::operator*=(T scalar) {
-    x *= scalar;
-    y *= scalar;
-    z *= scalar;
+    this->x *= scalar;
+    this->y *= scalar;
+    this->z *= scalar;
     return *this;
 }
 
@@ -101,7 +112,7 @@ Point3D<T> Point3D<T>::operator/(T scalar) const {
     if (scalar == T(0)) {
         throw std::runtime_error("Division by zero.");
     }
-    return Point3D<T>(x / scalar, y / scalar, z / scalar);
+    return Point3D<T>(this->x / scalar, this->y / scalar, this->z / scalar);
 }
 
 template <typename T>
@@ -109,15 +120,22 @@ Point3D<T>& Point3D<T>::operator/=(T scalar) {
     if (scalar == T(0)) {
         throw std::runtime_error("Division by zero.");
     }
-    x /= scalar;
-    y /= scalar;
-    z /= scalar;
+    this->x /= scalar;
+    this->y /= scalar;
+    this->z /= scalar;
     return *this;
 }
 
 template <typename T>
 bool Point3D<T>::operator==(const Point3D<T>& other) const {
-    return x == other.x && y == other.y && z == other.z;
+    return this->x == other.x && this->y == other.y && this->z == other.z;
+}
+
+template <typename T>
+bool Point3D<T>::operator<(const Point3D<T>& other) const {
+    if (x != other.x) return x < other.x;
+    if (y != other.y) return y < other.y;
+    return z < other.z;
 }
 
 template <typename T>
@@ -127,7 +145,7 @@ bool Point3D<T>::operator!=(const Point3D<T>& other) const {
 
 template <typename T>
 const T* Point3D<T>::data() const {
-    return &x;
+    return &this->x;
 }
 
 template <typename T>
@@ -135,3 +153,7 @@ std::ostream& operator<<(std::ostream& os, const Point3D<T>& point) {
     os << "(" << point.x << ", " << point.y << ", " << point.z << ")";
     return os;
 }
+
+// Explicit Instantiation
+template class Point3D<float>;
+template class Point3D<double>;

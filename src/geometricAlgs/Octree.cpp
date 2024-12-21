@@ -1,4 +1,4 @@
-#include "Octree.h"
+#include "includes/Octree.h"
 #include <cmath>
 #include <limits>
 
@@ -34,7 +34,9 @@ void Octree<T>::clear() {
 template <typename T>
 OctreeNode<T>::OctreeNode(const Point3D<T>& origin, T halfDimension)
     : origin(origin), halfDimension(halfDimension) {
-    children.fill(nullptr);
+    for (auto& child : children) {
+        child = nullptr;
+    }
 }
 
 template <typename T>
