@@ -1,6 +1,8 @@
 # Geometric3D-Library
 C++ Library for geometrical algorithms and data structures
 
+The cpp files are under src/geometricAlgs with their headers under src/geometricAlgs/includes
+
 ## Getting Started
 
 To get started, follow these steps:
@@ -14,7 +16,7 @@ To get started, follow these steps:
 4. **Run the Bash Script**: This script will compile the cpp files into object's and run the main.cpp that calls them.
 
     ```bash
-    bash run.sh
+    bash compile.sh
     ```
 
 5. **Execute the Program**: Run the program
