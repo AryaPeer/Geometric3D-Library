@@ -17,7 +17,7 @@ g++ -c src/geometricAlgs/AABB.cpp -o bin/static/AABB.o
 g++ -c src/geometricAlgs/BVH.cpp -o bin/static/BVH.o
 g++ -c src/geometricAlgs/ConvexHull.cpp -o bin/static/ConvexHull.o
 g++ -c src/geometricAlgs/DelaunayTriangulation.cpp -o bin/static/DelaunayTriangulation.o
-g++ -I "$EIGEN_PATH" -c src/geometricAlgs/OBB.cpp -o bin/static/OBB.o #Failed
+g++ -I "$EIGEN_PATH" -c src/geometricAlgs/OBB.cpp -o bin/static/OBB.o
 g++ -c src/geometricAlgs/Ray.cpp -o bin/static/Ray.o
 
 g++ -I "$EIGEN_PATH" -c src/main.cpp -o bin/main.o
